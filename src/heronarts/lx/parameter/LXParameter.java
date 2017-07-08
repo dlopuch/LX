@@ -48,7 +48,8 @@ public interface LXParameter {
     SECONDS,
     MILLISECONDS,
     DECIBELS,
-    HERTZ;
+    HERTZ,
+    LOG10;
 
     public String format(double value) {
       return Units.format(this, value);
@@ -88,6 +89,8 @@ public interface LXParameter {
         return String.format("%.2fHz", value);
       case DECIBELS:
         return String.format("%.1fdB", value);
+      case LOG10:
+        return String.format("%.2f", Math.pow(10, value));
       default:
       case NONE:
         return String.format("%.2f", value);
