@@ -43,7 +43,11 @@ public interface LXParameter {
     }
   };
 
-  public enum Units {
+  public interface Formatter {
+    public String format(double value);
+  }
+
+  public enum Units implements Formatter {
     NONE,
     SECONDS,
     MILLISECONDS,
@@ -51,6 +55,7 @@ public interface LXParameter {
     HERTZ,
     LOG10;
 
+    @Override
     public String format(double value) {
       return Units.format(this, value);
     }
@@ -134,6 +139,13 @@ public interface LXParameter {
    * @return Units
    */
   public Units getUnits();
+
+  /**
+   * Gets the formatter to be used for printing this parameter's value
+   *
+   * @return Formatter
+   */
+  public Formatter getFormatter();
 
   /**
    * Gets the polarity of this parameter.

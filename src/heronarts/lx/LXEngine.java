@@ -83,6 +83,8 @@ import com.google.gson.JsonObject;
  */
 public class LXEngine extends LXComponent implements LXOscComponent, LXModulationComponent {
 
+  private static final int MAX_SCENES = 5;
+
   private final LX lx;
 
   public final LXMidiEngine midi;
@@ -138,6 +140,8 @@ public class LXEngine extends LXComponent implements LXOscComponent, LXModulatio
   public final BoundedParameter speed =
     new BoundedParameter("Speed", 1, 0, 2)
     .setDescription("Overall speed adjustement to the entire engine (does not apply to master tempo and audio)");
+
+  private final BooleanParameter[] scenes = new BooleanParameter[MAX_SCENES];
 
   public final LXModulationEngine modulation;
 
@@ -247,6 +251,8 @@ public class LXEngine extends LXComponent implements LXOscComponent, LXModulatio
 
   private volatile boolean isThreaded = false;
 
+  private volatile boolean isSuperThreaded = false;
+
   private Thread engineThread = null;
 
   private boolean hasStarted = false;
@@ -345,6 +351,22 @@ public class LXEngine extends LXComponent implements LXOscComponent, LXModulatio
       }
     });
     LX.initTimer.log("Engine: Cue");
+
+    // Scenes
+    for (int i = 0; i < this.scenes.length; ++i) {
+      final int sceneIndex = i;
+      this.scenes[i] = new BooleanParameter("Scene-" + (i+1));
+      addParameter("scene-" + (i+1), this.scenes[i]);
+      this.scenes[i].addListener(new LXParameterListener() {
+        public void onParameterChanged(LXParameter p) {
+          BooleanParameter scene = (BooleanParameter) p;
+          if (scene.isOn()) {
+            launchScene(sceneIndex);
+            scene.setValue(false);
+          }
+        }
+      });
+    }
 
     // Master output
     this.output = new Output(lx);
@@ -478,6 +500,16 @@ public class LXEngine extends LXComponent implements LXOscComponent, LXModulatio
       this.engineThread.start();
     }
     return this;
+  }
+
+  public LXEngine setSuperThreaded(boolean superThreaded) {
+    this.isSuperThreaded = superThreaded;
+    System.out.println("LXEngine SuperThreading mode: " + (superThreaded ? "ON" : "OFF"));
+    return this;
+  }
+
+  public boolean isSuperThreaded() {
+    return this.isSuperThreaded;
   }
 
   private class EngineThread extends Thread {
@@ -701,6 +733,16 @@ public class LXEngine extends LXComponent implements LXOscComponent, LXModulatio
     }
   }
 
+  /**
+   * Get the boolean parameter that launches a scene
+   *
+   * @param index
+   * @return
+   */
+  public BooleanParameter getScene(int index) {
+    return this.scenes[index];
+  }
+
   public LXEngine launchScene(int index) {
     LXClip clip;
     for (LXChannel channel : this.lx.engine.channels) {
@@ -859,13 +901,49 @@ public class LXEngine extends LXComponent implements LXOscComponent, LXModulatio
     int rightChannelCount = 0;
     int mainChannelCount = 0;
 
+    // If we are in super-threaded mode, run the channels on their own threads!
+    if (this.isSuperThreaded) {
+      // Kick off threads per channel
+      for (LXChannel channel : this.mutableChannels) {
+        if (channel.enabled.isOn() || channel.cueActive.isOn()) {
+          synchronized (channel.thread) {
+            channel.thread.signal.workDone = false;
+            channel.thread.deltaMs = deltaMs;
+            channel.thread.workReady = true;
+            channel.thread.notify();
+            if (!channel.thread.hasStarted) {
+              channel.thread.hasStarted = true;
+              channel.thread.start();
+            }
+          }
+        }
+      }
+
+      // Wait for all the channel threads to finish
+      for (LXChannel channel : this.mutableChannels) {
+        if (channel.enabled.isOn() || channel.cueActive.isOn()) {
+          synchronized (channel.thread.signal) {
+            while (!channel.thread.signal.workDone) {
+              try {
+                channel.thread.signal.wait();
+              } catch (InterruptedException ix) {
+                ix.printStackTrace();
+              }
+            }
+            channel.thread.signal.workDone = false;
+          }
+        }
+      }
+    }
+
     for (LXChannel channel : this.mutableChannels) {
       boolean channelIsEnabled = channel.enabled.isOn();
       boolean channelIsCue = channel.cueActive.isOn();
       if (channelIsEnabled || channelIsCue) {
-        // TODO(mcslee): should clips still run even if channel is disabled??
-        channel.loop(deltaMs);
-
+        if (!this.isSuperThreaded) {
+          // TODO(mcslee): should clips still run even if channel is disabled??
+          channel.loop(deltaMs);
+        }
         long blendStart = System.nanoTime();
         if (channelIsEnabled) {
           boolean doBlend = false;
