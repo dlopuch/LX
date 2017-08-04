@@ -36,17 +36,6 @@ import heronarts.lx.parameter.BooleanParameter;
  */
 public abstract class LXPattern extends LXDeviceComponent implements LXComponent.Renamable, LXLayeredComponent.Buffered, LXMidiListener, LXOscComponent {
 
-  /**
-   * {@link LXPattern}s must have a constructor like <pre>public MyPattern(LX lx)</pre> to have the ability to be
-   * automatically serialized into and deserialized from an LX project json.
-   *
-   * If your pattern requires additional dependencies, a {@link Factory} instance can be created and registered with
-   * the {@link LXPatternFactoryRegistry} to allow deserialization from LX project json.
-   */
-  public interface Factory<T extends LXPattern> {
-    T build(LX lx);
-  }
-
   private int index = -1;
 
   private int intervalBegin = -1;

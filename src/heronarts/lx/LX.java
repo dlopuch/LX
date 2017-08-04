@@ -166,9 +166,9 @@ public class LX {
   public final Tempo tempo;
 
   /**
-   * The global registry of {@link LXPattern.Factory}'s
+   * The global registry of {@link LXPattern} factories
    */
-  public final LXPatternFactoryRegistry patternFactoryRegistry;
+  public final LXComponentFactoryRegistry<LXPattern> patternFactoryRegistry;
 
 
   /**
@@ -253,7 +253,7 @@ public class LX {
     LX.initTimer.log("Tempo");
 
     // Pattern factory registry
-    this.patternFactoryRegistry = new LXPatternFactoryRegistry();
+    this.patternFactoryRegistry = new LXComponentFactoryRegistry<>();
     LX.initTimer.log("PatternFactoryRegistry");
 
     // Add a default channel
@@ -792,7 +792,7 @@ public class LX {
 
 
     // Try instantiating it from a pattern factory
-    LXPattern.Factory factory = patternFactoryRegistry.getPatternFactory(clazz);
+    LXComponentFactoryRegistry.Factory<? extends LXPattern> factory = patternFactoryRegistry.getFactory(clazz);
     if (factory == null) {
       throw new CouldNotInstantiatePatternException("No LX constructor and no registered factory");
     }

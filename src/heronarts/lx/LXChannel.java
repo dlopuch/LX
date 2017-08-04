@@ -425,7 +425,7 @@ public class LXChannel extends LXBus implements LXComponent.Renamable {
    * Registers a pattern factory, uses it to create a pattern instance, and adds that pattern instance to the channel
    * @return The pattern instance that was created
    */
-  public final <T extends LXPattern> T addPattern(Class<T> patternClazz, LXPattern.Factory<T> patternFactory) {
+  public final <T extends LXPattern> T addPattern(Class<T> patternClazz, LXComponentFactoryRegistry.Factory<T> patternFactory) {
     this.lx.patternFactoryRegistry.register(patternClazz, patternFactory);
     T pattern = patternFactory.build(lx);
     this.addPattern(pattern);
