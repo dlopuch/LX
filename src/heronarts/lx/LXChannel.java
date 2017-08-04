@@ -20,26 +20,26 @@
 
 package heronarts.lx;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import heronarts.lx.blend.LXBlend;
 import heronarts.lx.clip.LXChannelClip;
 import heronarts.lx.clip.LXClip;
 import heronarts.lx.midi.LXMidiEngine;
 import heronarts.lx.midi.LXShortMessage;
 import heronarts.lx.model.LXModel;
+import heronarts.lx.parameter.BooleanParameter;
 import heronarts.lx.parameter.BoundedParameter;
 import heronarts.lx.parameter.CompoundParameter;
 import heronarts.lx.parameter.DiscreteParameter;
 import heronarts.lx.parameter.EnumParameter;
 import heronarts.lx.parameter.LXParameter;
 import heronarts.lx.pattern.SolidColorPattern;
-import heronarts.lx.parameter.BooleanParameter;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
 
 /**
  * A channel is a single component of the engine that has a set of patterns from
@@ -421,6 +421,17 @@ public class LXChannel extends LXBus implements LXComponent.Renamable {
     return this;
   }
 
+  /**
+   * Registers a pattern factory, uses it to create a pattern instance, and adds that pattern instance to the channel
+   * @return The pattern instance that was created
+   */
+  public final <T extends LXPattern> T addPattern(Class<T> patternClazz, LXPattern.Factory<T> patternFactory) {
+    this.lx.patternFactoryRegistry.register(patternClazz, patternFactory);
+    T pattern = patternFactory.build(lx);
+    this.addPattern(pattern);
+    return pattern;
+  }
+
   public final LXChannel addPattern(LXPattern pattern) {
     pattern.setChannel(this);
     pattern.setModel(this.model);
@@ -799,11 +810,16 @@ public class LXChannel extends LXBus implements LXComponent.Renamable {
     JsonArray patternsArray = obj.getAsJsonArray(KEY_PATTERNS);
     for (JsonElement patternElement : patternsArray) {
       JsonObject patternObj = (JsonObject) patternElement;
-      LXPattern pattern = this.lx.instantiatePattern(patternObj.get(KEY_CLASS).getAsString());
-      if (pattern != null) {
-        pattern.load(lx, patternObj);
-        addPattern(pattern);
+      LXPattern pattern;
+      try {
+        pattern = this.lx.instantiatePattern(patternObj.get(KEY_CLASS).getAsString());
+      } catch (LX.CouldNotInstantiatePatternException e) {
+        System.err.println("Could not instantiate pattern: " + e.getLocalizedMessage());
+        continue;
       }
+
+      pattern.load(lx, patternObj);
+      addPattern(pattern);
     }
     if (this.patterns.size() == 0) {
       addPattern(new SolidColorPattern(lx));

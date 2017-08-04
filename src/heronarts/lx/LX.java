@@ -20,12 +20,18 @@
 
 package heronarts.lx;
 
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.stream.JsonWriter;
 import heronarts.lx.color.LXColor;
 import heronarts.lx.color.LXPalette;
 import heronarts.lx.model.GridModel;
 import heronarts.lx.model.LXModel;
 import heronarts.lx.output.LXOutput;
 import heronarts.lx.pattern.IteratorTestPattern;
+
 import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
@@ -35,11 +41,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
-import com.google.gson.stream.JsonWriter;
 
 /**
  * Core controller for a LX instance. Each instance drives a grid of nodes with
@@ -165,6 +166,12 @@ public class LX {
   public final Tempo tempo;
 
   /**
+   * The global registry of {@link LXPattern.Factory}'s
+   */
+  public final LXPatternFactoryRegistry patternFactoryRegistry;
+
+
+  /**
    * The list of globally registered pattern classes
    */
   private final List<Class<? extends LXPattern>> registeredPatterns =
@@ -244,6 +251,10 @@ public class LX {
     // Tempo
     this.tempo = new Tempo(this);
     LX.initTimer.log("Tempo");
+
+    // Pattern factory registry
+    this.patternFactoryRegistry = new LXPatternFactoryRegistry();
+    LX.initTimer.log("PatternFactoryRegistry");
 
     // Add a default channel
     this.engine.addChannel(new LXPattern[] { new IteratorTestPattern(this) }).fader.setValue(1);
@@ -587,7 +598,7 @@ public class LX {
   /**
    * Register a pattern class with the engine
    *
-   * @param pattern
+   * @param patterns
    * @return this
    */
   public LX registerPatterns(Class<LXPattern>[] patterns) {
@@ -753,22 +764,49 @@ public class LX {
     }
   }
 
-  private <T extends LXComponent> T instantiateComponent(String className, Class<T> type) {
-    try {
-      Class<? extends T> cls = Class.forName(className).asSubclass(type);
-      return cls.getConstructor(LX.class).newInstance(this);
-    } catch (Exception x) {
-      System.err.println("Exception in instantiateComponent: " + x.getLocalizedMessage());
+  /** Quick throwable to allow subclasses (ie P3LX) to intercept error messages and try other approaches */
+  protected class CouldNotInstantiatePatternException extends Exception {
+    public CouldNotInstantiatePatternException(String message) {
+      super(message);
     }
-    return null;
+    public CouldNotInstantiatePatternException(String message, Exception e) {
+      super(message, e);
+    }
   }
 
-  protected LXPattern instantiatePattern(String className) {
-    return instantiateComponent(className, LXPattern.class);
+  protected LXPattern instantiatePattern(String className) throws CouldNotInstantiatePatternException {
+    Class<? extends LXPattern> clazz;
+    try {
+      clazz = Class.forName(className).asSubclass(LXPattern.class);
+    } catch (Exception e) {
+      throw new CouldNotInstantiatePatternException("Class " + className + " not recognized or not a LXPattern", e);
+    }
+
+
+    // Try instantiating via default LX constructor
+    try {
+      return clazz.getConstructor(LX.class).newInstance(this);
+    } catch (Exception e) {
+      // Try next approach
+    }
+
+
+    // Try instantiating it from a pattern factory
+    LXPattern.Factory factory = patternFactoryRegistry.getPatternFactory(clazz);
+    if (factory == null) {
+      throw new CouldNotInstantiatePatternException("No LX constructor and no registered factory");
+    }
+    return factory.build(this);
   }
 
   protected LXEffect instantiateEffect(String className) {
-    return instantiateComponent(className, LXEffect.class);
+    try {
+      Class<? extends LXEffect> cls = Class.forName(className).asSubclass(LXEffect.class);
+      return cls.getConstructor(LX.class).newInstance(this);
+    } catch (Exception x) {
+      System.err.println("Could not instantiate effect: " + x.getLocalizedMessage());
+      return null;
+    }
   }
 
 }
