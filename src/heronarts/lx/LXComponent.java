@@ -299,7 +299,7 @@ public abstract class LXComponent implements LXParameterListener, LXSerializable
 
   protected final static String KEY_ID = "id";
   protected final static String KEY_CLASS = "class";
-  private final static String KEY_PARAMETERS = "parameters";
+  protected final static String KEY_PARAMETERS = "parameters";
   public static final String KEY_COMPONENT_ID = "componentId";
   public static final String KEY_PARAMETER_PATH = "parameterPath";
 

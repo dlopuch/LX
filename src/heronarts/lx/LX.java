@@ -166,9 +166,17 @@ public class LX {
   public final Tempo tempo;
 
   /**
+   * A Factory that can be registered to teach LX to recognize how to build a class of LXPattern
+   * @param <T> The LXComponent context of this registry
+   */
+  public interface LXPatternFactory<T extends LXPattern> extends LXComponentFactoryRegistry.BaseFactory<LXPattern> {
+    T build(LX lx);
+  }
+
+  /**
    * The global registry of {@link LXPattern} factories
    */
-  public final LXComponentFactoryRegistry<LXPattern> patternFactoryRegistry;
+  public final LXComponentFactoryRegistry<LXPattern, LXPatternFactory<?>> patternFactoryRegistry;
 
 
   /**
@@ -792,11 +800,14 @@ public class LX {
 
 
     // Try instantiating it from a pattern factory
-    LXComponentFactoryRegistry.Factory<? extends LXPattern> factory = patternFactoryRegistry.getFactory(clazz);
-    if (factory == null) {
-      throw new CouldNotInstantiatePatternException("No LX constructor and no registered factory");
+    LXPatternFactory<? extends LXPattern> factory = patternFactoryRegistry.getFactory(clazz);
+    if (factory != null) {
+      return factory.build(this);
     }
-    return factory.build(this);
+
+
+    // Give up.
+    throw new CouldNotInstantiatePatternException("No LX constructor and no registered factory");
   }
 
   protected LXEffect instantiateEffect(String className) {

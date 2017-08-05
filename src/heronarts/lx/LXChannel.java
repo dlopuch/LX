@@ -422,12 +422,16 @@ public class LXChannel extends LXBus implements LXComponent.Renamable {
   }
 
   /**
+   * Registers a pattern using a factory -- the factory 'teaches' global LX how to construct that particular type of
+   * pattern when deserializing from JSON in the future.
+   *
    * Registers a pattern factory, uses it to create a pattern instance, and adds that pattern instance to the channel
+   *
    * @return The pattern instance that was created
    */
-  public final <T extends LXPattern> T addPattern(Class<T> patternClazz, LXComponentFactoryRegistry.Factory<T> patternFactory) {
-    this.lx.patternFactoryRegistry.register(patternClazz, patternFactory);
+  public final <T extends LXPattern> T addPattern(Class<T> patternClazz, LX.LXPatternFactory<T> patternFactory) {
     T pattern = patternFactory.build(lx);
+    this.lx.patternFactoryRegistry.register(patternClazz, patternFactory);
     this.addPattern(pattern);
     return pattern;
   }

@@ -6,25 +6,30 @@ import java.util.LinkedList;
 import java.util.Map;
 
 /**
- * A registry that maps some LXComponent implementation classes to {@link Factory} instances which are used to
+ * A registry that maps some LXComponent implementations' Classes to Factory instances which are used to
  * instantiate the components when deserializing from LX project json.
  *
- * Factories are only required if your component constructor does not follow the <pre>public MyComponent(LX lx)</pre>
- * form.
+ * Factories are only required if your component constructor does not use a simple parameter constructor,
+ * usually of the form <pre>public MyComponent(LX lx)</pre>
  *
  * @param <C> The LXComponent context of this registry
+ * @param <F> The type of Factory used by this context of registry
  */
-public class LXComponentFactoryRegistry<C extends LXComponent> {
+public class LXComponentFactoryRegistry<C extends LXComponent, F extends LXComponentFactoryRegistry.BaseFactory<C>> {
 
   /**
-   * Factories recognized by this registry
+   * Usages of this registry class should specify the type of factory used by the usage context, since different
+   * contexts may send different parameters to the factory.
+   *
+   * Context factories should specify a single build() function
+   *
    * @param <C> The LXComponent context of this registry
    */
-  public interface Factory<C extends LXComponent> {
-    C build(LX lx);
+  public interface BaseFactory<C extends LXComponent> {
+    // extensions should specify a single build() method that returns the type of LXComponent being created
   }
 
-  private final Map<Class<? extends C>, Factory<? extends C>> factoriesByClass =
+  private final Map<Class<? extends C>, F> factoriesByClass =
       new HashMap<>();
 
   private final Deque<Class<? extends C>> componentClasses = new LinkedList<>();
@@ -33,7 +38,7 @@ public class LXComponentFactoryRegistry<C extends LXComponent> {
 
   }
 
-  public <T extends C> void register(Class<T> componentClass, Factory<T> componentFactory) {
+  public <T extends C> void register(Class<T> componentClass, F componentFactory) {
     if (!this.factoriesByClass.containsKey(componentClass)) {
       this.componentClasses.addFirst(componentClass);
     }
@@ -46,9 +51,9 @@ public class LXComponentFactoryRegistry<C extends LXComponent> {
    * If no direct mappings are known, returns the first factory that can create an assignable subclass of the component.
    */
   @SuppressWarnings("unchecked")
-  public <T extends C> Factory<T> getFactory(Class<T> componentClazz) {
+  public <T extends C> F getFactory(Class<T> componentClazz) {
     // First try by direct mapping
-    Factory factory = this.factoriesByClass.get(componentClazz);
+    F factory = this.factoriesByClass.get(componentClazz);
 
     // If that doesn't work, fall back to instance checks to cover subclasses
     if (factory == null) {
