@@ -46,7 +46,23 @@ public class LXModulationEngine extends LXModulatorComponent implements LXOscCom
   private final LXComponent component;
 
 
+  /**
+   * A Factory that can be registered to teach this modulation engine instance how to build a class of LXModulator.
+   *
+   * Used for deserializing custom modulators out of JSON (if your modulator has a default constructor or a simple
+   * 1 param constructor like new(LX lx), you don't need this -- your modulator will be instantiated automatically).
+   *
+   * Register by calling {@link LXComponentFactoryRegistry#register} on {@link #getModulatorFactoryRegistry()}
+   *
+   * @param <T> The type of modulator this factory produces
+   */
   public interface LXModulatorFactory<T extends LXModulator> extends LXComponentFactoryRegistry.BaseFactory<LXModulator> {
+    /**
+     * Instantiate your modulator
+     * @param lx LX instance
+     * @param label Modulator context -- the label this modulator class instance it being instantiated under
+     * @return Your new instance
+     */
     T build(LX lx, String label);
   }
 
@@ -192,7 +208,7 @@ public class LXModulationEngine extends LXModulatorComponent implements LXOscCom
    * modulator factory registry, {@link #getModulatorFactoryRegistry()}.
    *
    * @param modulatorClazz Class of modulator to add
-   * @param label Factory parameter
+   * @param label Factory context parameter
    * @param <T> Type of modulator
    * @return The newly-constructed modulator instance that has been added.
    */
@@ -311,7 +327,10 @@ public class LXModulationEngine extends LXModulatorComponent implements LXOscCom
       for (JsonElement modulatorElement : modulatorArr) {
         JsonObject modulatorObj = modulatorElement.getAsJsonObject();
         String modulatorClass = modulatorObj.get(KEY_CLASS).getAsString();
-        LXModulator modulator = instantiateModulator(modulatorClass, modulatorObj.getAsJsonObject(KEY_PARAMETERS).get("label").getAsString());
+        LXModulator modulator = instantiateModulator(
+            modulatorClass,
+            modulatorObj.getAsJsonObject(KEY_PARAMETERS).get(KEY_LABEL).getAsString()
+        );
         if (modulator == null) {
           continue;
         }

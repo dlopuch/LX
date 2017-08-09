@@ -166,17 +166,30 @@ public class LX {
   public final Tempo tempo;
 
   /**
-   * A Factory that can be registered to teach LX to recognize how to build a class of LXPattern
-   * @param <T> The LXComponent context of this registry
+   * A Factory that can be registered to teach LX to recognize how to build a class of LXPattern.
+   *
+   * Used for deserializing custom patterns out of JSON (if your LXPattern has a simple 1-param
+   * constructor like new(LX lx), you don't need this -- your pattern will be instantiated automatically).
+   *
+   * Register by calling {@link #registerPatternFactory}
+   *
+   * @param <T> The type of pattern this factory produces
    */
   public interface LXPatternFactory<T extends LXPattern> extends LXComponentFactoryRegistry.BaseFactory<LXPattern> {
-    T build(LX lx);
+    /**
+     * Instantiate your pattern
+     * @param lx LX instance
+     * @param channelIndex Pattern context -- which channel it's being instantiated under
+     * @param patternLabel Pattern context -- the label (could use as ID) of the pattern
+     * @return Your new instance
+     */
+    T build(LX lx, Integer channelIndex, String patternLabel);
   }
 
   /**
    * The global registry of {@link LXPattern} factories
    */
-  public final LXComponentFactoryRegistry<LXPattern, LXPatternFactory<?>> patternFactoryRegistry;
+  private final LXComponentFactoryRegistry<LXPattern, LXPatternFactory<?>> patternFactoryRegistry;
 
 
   /**
@@ -617,6 +630,19 @@ public class LX {
   }
 
   /**
+   * Register a pattern factory with the engine.  Used when deserializing patterns that have custom constructors from
+   * JSON (see {@link LXPatternFactory}).
+   *
+   * @param patternClazz
+   * @param patternFactory
+   * @param <T> Type of pattern
+   */
+  public <T extends LXPattern> void registerPatternFactory(Class<T> patternClazz, LXPatternFactory<T> patternFactory) {
+    patternFactoryRegistry.register(patternClazz, patternFactory);
+    this.registerPattern(patternClazz);
+  }
+
+  /**
    * Gets the list of registered pattern classes
    *
    * @return Pattern classes
@@ -782,7 +808,8 @@ public class LX {
     }
   }
 
-  protected LXPattern instantiatePattern(String className) throws CouldNotInstantiatePatternException {
+  protected LXPattern instantiatePattern(String className, String patternLabel, LXChannel patternChannel)
+      throws CouldNotInstantiatePatternException {
     Class<? extends LXPattern> clazz;
     try {
       clazz = Class.forName(className).asSubclass(LXPattern.class);
@@ -790,7 +817,13 @@ public class LX {
       throw new CouldNotInstantiatePatternException("Class " + className + " not recognized or not a LXPattern", e);
     }
 
+    return instantiatePattern(clazz, patternLabel, patternChannel);
+  }
 
+  @SuppressWarnings("unchecked")
+  protected <T extends LXPattern> T instantiatePattern(Class<T> clazz, String patternLabel, LXChannel patternChannel)
+      throws CouldNotInstantiatePatternException
+  {
     // Try instantiating via default LX constructor
     try {
       return clazz.getConstructor(LX.class).newInstance(this);
@@ -800,9 +833,9 @@ public class LX {
 
 
     // Try instantiating it from a pattern factory
-    LXPatternFactory<? extends LXPattern> factory = patternFactoryRegistry.getFactory(clazz);
+    LXPatternFactory<T> factory = (LXPatternFactory<T>) patternFactoryRegistry.getFactory(clazz);
     if (factory != null) {
-      return factory.build(this);
+      return factory.build(this, patternChannel.getIndex(), patternLabel);
     }
 
 
@@ -819,6 +852,5 @@ public class LX {
       return null;
     }
   }
-
 }
 

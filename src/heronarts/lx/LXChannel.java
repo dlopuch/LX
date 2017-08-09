@@ -421,18 +421,28 @@ public class LXChannel extends LXBus implements LXComponent.Renamable {
     return this;
   }
 
+
   /**
-   * Registers a pattern using a factory -- the factory 'teaches' global LX how to construct that particular type of
-   * pattern when deserializing from JSON in the future.
+   * Adds a pattern type to this channel by trying to construct a pattern instance using standard constructors or any
+   * registered pattern factories.
    *
-   * Registers a pattern factory, uses it to create a pattern instance, and adds that pattern instance to the channel
+   * To register pattern factories, call {@link LX#registerPatternFactory}.
    *
-   * @return The pattern instance that was created
+   * @param patternClazz Class of pattern to add
+   * @param label Factory context parameter
+   * @param <T> Type of pattern being added
+   * @return The newly-constructed pattern instance that has been added
    */
-  public final <T extends LXPattern> T addPattern(Class<T> patternClazz, LX.LXPatternFactory<T> patternFactory) {
-    T pattern = patternFactory.build(lx);
-    this.lx.patternFactoryRegistry.register(patternClazz, patternFactory);
+  public <T extends LXPattern> T addPattern(Class<T> patternClazz, String label) {
+    T pattern;
+    try {
+      pattern = this.lx.instantiatePattern(patternClazz, label, this);
+    } catch (LX.CouldNotInstantiatePatternException e) {
+      throw new RuntimeException("Non-standard and unknown pattern constructor: " + patternClazz.toGenericString(), e);
+    }
+
     this.addPattern(pattern);
+
     return pattern;
   }
 
@@ -638,7 +648,7 @@ public class LXChannel extends LXBus implements LXComponent.Renamable {
   /**
    * Enable automatic transition from pattern to pattern on this channel
    *
-   * @param autoTransitionThresholdTransition time in seconds
+   * @param autoTransitionThreshold time in seconds
    * @return
    */
   public LXBus enableAutoTransition(double autoTransitionThreshold) {
@@ -816,7 +826,11 @@ public class LXChannel extends LXBus implements LXComponent.Renamable {
       JsonObject patternObj = (JsonObject) patternElement;
       LXPattern pattern;
       try {
-        pattern = this.lx.instantiatePattern(patternObj.get(KEY_CLASS).getAsString());
+        pattern = this.lx.instantiatePattern(
+            patternObj.get(KEY_CLASS).getAsString(),
+            patternObj.getAsJsonObject(KEY_PARAMETERS).get(KEY_LABEL).getAsString(),
+            this
+        );
       } catch (LX.CouldNotInstantiatePatternException e) {
         System.err.println("Could not instantiate pattern: " + e.getLocalizedMessage());
         continue;
