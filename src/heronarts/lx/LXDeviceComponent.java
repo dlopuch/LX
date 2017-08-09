@@ -63,4 +63,10 @@ public abstract class LXDeviceComponent extends LXLayeredComponent implements LX
     }
   }
 
+  @Override
+  public void dispose() {
+    super.dispose();
+    this.modulation.dispose();
+  }
+
 }
