@@ -20,14 +20,8 @@
 
 package heronarts.lx;
 
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-
 import heronarts.lx.color.ColorParameter;
 import heronarts.lx.parameter.BooleanParameter;
 import heronarts.lx.parameter.CompoundParameter;
@@ -37,6 +31,12 @@ import heronarts.lx.parameter.LXParameter;
 import heronarts.lx.parameter.LXParameterListener;
 import heronarts.lx.parameter.MutableParameter;
 import heronarts.lx.parameter.StringParameter;
+
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Utility base class for objects that have parameters.
@@ -222,6 +222,9 @@ public abstract class LXComponent implements LXParameterListener, LXSerializable
     if (this.lx == null) {
       throw new IllegalStateException("LXComponent never had lx reference set: " + this);
     }
+    if (this instanceof LXModulationComponent) {
+      ((LXModulationComponent) this).getModulation().dispose();
+    }
     this.lx.engine.midi.removeMappings(this);
     this.lx.engine.modulation.removeModulations(this);
     for (LXParameter parameter : this.parameters.values()) {
@@ -296,7 +299,8 @@ public abstract class LXComponent implements LXParameterListener, LXSerializable
 
   protected final static String KEY_ID = "id";
   protected final static String KEY_CLASS = "class";
-  private final static String KEY_PARAMETERS = "parameters";
+  protected final static String KEY_PARAMETERS = "parameters";
+  protected final static String KEY_LABEL = "label";
   public static final String KEY_COMPONENT_ID = "componentId";
   public static final String KEY_PARAMETER_PATH = "parameterPath";
 

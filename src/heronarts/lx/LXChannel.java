@@ -20,26 +20,26 @@
 
 package heronarts.lx;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import heronarts.lx.blend.LXBlend;
 import heronarts.lx.clip.LXChannelClip;
 import heronarts.lx.clip.LXClip;
 import heronarts.lx.midi.LXMidiEngine;
 import heronarts.lx.midi.LXShortMessage;
 import heronarts.lx.model.LXModel;
+import heronarts.lx.parameter.BooleanParameter;
 import heronarts.lx.parameter.BoundedParameter;
 import heronarts.lx.parameter.CompoundParameter;
 import heronarts.lx.parameter.DiscreteParameter;
 import heronarts.lx.parameter.EnumParameter;
 import heronarts.lx.parameter.LXParameter;
 import heronarts.lx.pattern.SolidColorPattern;
-import heronarts.lx.parameter.BooleanParameter;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
 
 /**
  * A channel is a single component of the engine that has a set of patterns from
@@ -224,7 +224,13 @@ public class LXChannel extends LXBus implements LXComponent.Renamable {
 
   ChannelThread thread = new ChannelThread();
 
+  private static int channelThreadCount = 1;
+
   class ChannelThread extends Thread {
+
+    ChannelThread() {
+      super("LXChannel thread #" + channelThreadCount++);
+    }
 
     boolean hasStarted = false;
     boolean workReady = true;
@@ -238,7 +244,7 @@ public class LXChannel extends LXBus implements LXComponent.Renamable {
 
     @Override
     public void run() {
-      System.out.println("LXChannel thread started [" + getLabel() + "]");
+      System.out.println("LXEngine Channel thread started [" + getLabel() + "]");
       while (!isInterrupted()) {
         synchronized (this) {
           try {
@@ -257,7 +263,7 @@ public class LXChannel extends LXBus implements LXComponent.Renamable {
           this.signal.notify();
         }
       }
-      System.out.println("LXChannel thread finished [" + getLabel() + "]");
+      System.out.println("LXEngine Channel thread finished [" + getLabel() + "]");
     }
   };
 
@@ -413,6 +419,31 @@ public class LXChannel extends LXBus implements LXComponent.Renamable {
     this.transition = null;
     getActivePattern().onActive();
     return this;
+  }
+
+
+  /**
+   * Adds a pattern type to this channel by trying to construct a pattern instance using standard constructors or any
+   * registered pattern factories.
+   *
+   * To register pattern factories, call {@link LX#registerPatternFactory}.
+   *
+   * @param patternClazz Class of pattern to add
+   * @param label Factory context parameter
+   * @param <T> Type of pattern being added
+   * @return The newly-constructed pattern instance that has been added
+   */
+  public <T extends LXPattern> T addPattern(Class<T> patternClazz, String label) {
+    T pattern;
+    try {
+      pattern = this.lx.instantiatePattern(patternClazz, label, this);
+    } catch (LX.CouldNotInstantiatePatternException e) {
+      throw new RuntimeException("Non-standard and unknown pattern constructor: " + patternClazz.toGenericString(), e);
+    }
+
+    this.addPattern(pattern);
+
+    return pattern;
   }
 
   public final LXChannel addPattern(LXPattern pattern) {
@@ -617,7 +648,7 @@ public class LXChannel extends LXBus implements LXComponent.Renamable {
   /**
    * Enable automatic transition from pattern to pattern on this channel
    *
-   * @param autoTransitionThresholdTransition time in seconds
+   * @param autoTransitionThreshold time in seconds
    * @return
    */
   public LXBus enableAutoTransition(double autoTransitionThreshold) {
@@ -793,11 +824,20 @@ public class LXChannel extends LXBus implements LXComponent.Renamable {
     JsonArray patternsArray = obj.getAsJsonArray(KEY_PATTERNS);
     for (JsonElement patternElement : patternsArray) {
       JsonObject patternObj = (JsonObject) patternElement;
-      LXPattern pattern = this.lx.instantiatePattern(patternObj.get(KEY_CLASS).getAsString());
-      if (pattern != null) {
-        pattern.load(lx, patternObj);
-        addPattern(pattern);
+      LXPattern pattern;
+      try {
+        pattern = this.lx.instantiatePattern(
+            patternObj.get(KEY_CLASS).getAsString(),
+            patternObj.getAsJsonObject(KEY_PARAMETERS).get(KEY_LABEL).getAsString(),
+            this
+        );
+      } catch (LX.CouldNotInstantiatePatternException e) {
+        System.err.println("Could not instantiate pattern: " + e.getLocalizedMessage());
+        continue;
       }
+
+      pattern.load(lx, patternObj);
+      addPattern(pattern);
     }
     if (this.patterns.size() == 0) {
       addPattern(new SolidColorPattern(lx));

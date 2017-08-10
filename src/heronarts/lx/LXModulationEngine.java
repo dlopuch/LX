@@ -26,25 +26,48 @@
 
 package heronarts.lx;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Iterator;
-import java.util.List;
-
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-
 import heronarts.lx.modulator.LXModulator;
 import heronarts.lx.osc.LXOscComponent;
 import heronarts.lx.parameter.CompoundParameter;
 import heronarts.lx.parameter.LXCompoundModulation;
 import heronarts.lx.parameter.LXTriggerModulation;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Iterator;
+import java.util.List;
+
 public class LXModulationEngine extends LXModulatorComponent implements LXOscComponent {
 
   private final LX lx;
   private final LXComponent component;
+
+
+  /**
+   * A Factory that can be registered to teach this modulation engine instance how to build a class of LXModulator.
+   *
+   * Used for deserializing custom modulators out of JSON (if your modulator has a default constructor or a simple
+   * 1 param constructor like new(LX lx), you don't need this -- your modulator will be instantiated automatically).
+   *
+   * Register by calling {@link LXComponentFactoryRegistry#register} on {@link #getModulatorFactoryRegistry()}
+   *
+   * @param <T> The type of modulator this factory produces
+   */
+  public interface LXModulatorFactory<T extends LXModulator> extends LXComponentFactoryRegistry.BaseFactory<LXModulator> {
+    /**
+     * Instantiate your modulator
+     * @param lx LX instance
+     * @param label Modulator context -- the label this modulator class instance it being instantiated under
+     * @return Your new instance
+     */
+    T build(LX lx, String label);
+  }
+
+  // instantiated lazily, use getter to access
+  private LXComponentFactoryRegistry<LXModulator, LXModulatorFactory<?>> modulatorFactoryRegistry;
 
   public interface Listener {
     public void modulatorAdded(LXModulationEngine engine, LXModulator modulator);
@@ -177,6 +200,31 @@ public class LXModulationEngine extends LXModulatorComponent implements LXOscCom
     return modulator;
   }
 
+  /**
+   * Adds a modulator type by trying to construct a modulator instance using standard constructors or any registered
+   * modulator factories.
+   *
+   * To register modulator factories, call {@link LXComponentFactoryRegistry#register} against this engine's
+   * modulator factory registry, {@link #getModulatorFactoryRegistry()}.
+   *
+   * @param modulatorClazz Class of modulator to add
+   * @param label Factory context parameter
+   * @param <T> Type of modulator
+   * @return The newly-constructed modulator instance that has been added.
+   */
+  public <T extends LXModulator> T addModulator(Class<T> modulatorClazz, String label) {
+    T modulator = instantiateModulator(modulatorClazz, label);
+
+    if (modulator == null) {
+      throw new RuntimeException("Non-standard and unknown modulator constructor: " + modulatorClazz.toGenericString());
+    }
+
+    this.addModulator(modulator);
+
+    return modulator;
+  }
+
+
   @Override
   public LXModulator removeModulator(LXModulator modulator) {
     removeModulations(modulator);
@@ -201,17 +249,48 @@ public class LXModulationEngine extends LXModulatorComponent implements LXOscCom
     return "Mod";
   }
 
-  protected LXModulator instantiateModulator(String className) {
+  protected LXModulator instantiateModulator(String className, String label) {
+    Class<? extends LXModulator> cls;
     try {
-      Class<? extends LXModulator> cls = Class.forName(className).asSubclass(LXModulator.class);
-      try {
-        return cls.getConstructor(LX.class).newInstance(this.lx);
-      } catch (NoSuchMethodException nsmx) {
-        return cls.getConstructor().newInstance();
-      }
-    } catch (Exception x) {
-      System.err.println("Exception in instantiateModulator: " + x.getLocalizedMessage());
+      cls = Class.forName(className).asSubclass(LXModulator.class);
+    } catch (Exception e) {
+      System.err.println("Could not instantiate modulator: " + className + " not recognized or not a modulator (" +
+          e.getLocalizedMessage() + ")"
+      );
+      return null;
     }
+
+    return instantiateModulator(cls, label);
+  }
+
+  @SuppressWarnings("unchecked")
+  private <T extends LXModulator> T instantiateModulator(Class<T> clazz, String label) {
+    // Try to construct using LX constructor
+    try {
+      return clazz.getConstructor(LX.class).newInstance(this.lx);
+    } catch (Exception e) {
+      // next approach
+    }
+
+
+    // Try to construct using default constructor
+    try {
+      return clazz.getConstructor().newInstance();
+    } catch (Exception x) {
+      // next approach
+    }
+
+
+    // Try instantiating from a factory
+    LXModulatorFactory<T> factory = (LXModulatorFactory<T>) (getModulatorFactoryRegistry().getFactory(clazz));
+    if (factory != null) {
+      return factory.build(lx, label);
+    }
+
+
+    // Give up.
+    System.err.println("Could not instantiate modulator " + clazz.toGenericString() + ": No default constructors and " +
+        "no registered factories.");
     return null;
   }
 
@@ -226,9 +305,7 @@ public class LXModulationEngine extends LXModulatorComponent implements LXOscCom
     obj.add(KEY_TRIGGERS, LXSerializable.Utils.toArray(lx, this.triggers));
   }
 
-  @Override
-  public void load(LX lx, JsonObject obj) {
-    // Remove everything first
+  public void clear() {
     for (int i = this.modulators.size() - 1; i >= 0; --i) {
       removeModulator(this.modulators.get(i));
     }
@@ -238,19 +315,28 @@ public class LXModulationEngine extends LXModulatorComponent implements LXOscCom
     for (int i = this.triggers.size() - 1; i >= 0; --i) {
       removeTrigger(this.triggers.get(i));
     }
+  }
+
+  @Override
+  public void load(LX lx, JsonObject obj) {
+    // Remove everything first
+    clear();
 
     if (obj.has(KEY_MODULATORS)) {
       JsonArray modulatorArr = obj.getAsJsonArray(KEY_MODULATORS);
       for (JsonElement modulatorElement : modulatorArr) {
         JsonObject modulatorObj = modulatorElement.getAsJsonObject();
         String modulatorClass = modulatorObj.get(KEY_CLASS).getAsString();
-        LXModulator modulator = instantiateModulator(modulatorClass);
+        LXModulator modulator = instantiateModulator(
+            modulatorClass,
+            modulatorObj.getAsJsonObject(KEY_PARAMETERS).get(KEY_LABEL).getAsString()
+        );
         if (modulator == null) {
-          System.err.println("Could not instantiate modulator: " + modulatorClass);
-        } else {
-          addModulator(modulator);
-          modulator.load(lx, modulatorObj);
+          continue;
         }
+
+        addModulator(modulator);
+        modulator.load(lx, modulatorObj);
       }
     }
     if (obj.has(KEY_MODULATIONS)) {
@@ -273,4 +359,11 @@ public class LXModulationEngine extends LXModulatorComponent implements LXOscCom
     }
   }
 
+  public LXComponentFactoryRegistry<LXModulator, LXModulatorFactory<? extends LXModulator>> getModulatorFactoryRegistry() {
+      // Lazy instantiation -- only build registries for engines that have requested it.
+    if (modulatorFactoryRegistry == null) {
+      modulatorFactoryRegistry = new LXComponentFactoryRegistry<>();
+    }
+    return modulatorFactoryRegistry;
+  }
 }

@@ -20,12 +20,18 @@
 
 package heronarts.lx;
 
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.stream.JsonWriter;
 import heronarts.lx.color.LXColor;
 import heronarts.lx.color.LXPalette;
 import heronarts.lx.model.GridModel;
 import heronarts.lx.model.LXModel;
 import heronarts.lx.output.LXOutput;
 import heronarts.lx.pattern.IteratorTestPattern;
+
 import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
@@ -35,11 +41,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
-import com.google.gson.stream.JsonWriter;
 
 /**
  * Core controller for a LX instance. Each instance drives a grid of nodes with
@@ -165,6 +166,33 @@ public class LX {
   public final Tempo tempo;
 
   /**
+   * A Factory that can be registered to teach LX to recognize how to build a class of LXPattern.
+   *
+   * Used for deserializing custom patterns out of JSON (if your LXPattern has a simple 1-param
+   * constructor like new(LX lx), you don't need this -- your pattern will be instantiated automatically).
+   *
+   * Register by calling {@link #registerPatternFactory}
+   *
+   * @param <T> The type of pattern this factory produces
+   */
+  public interface LXPatternFactory<T extends LXPattern> extends LXComponentFactoryRegistry.BaseFactory<LXPattern> {
+    /**
+     * Instantiate your pattern
+     * @param lx LX instance
+     * @param channelIndex Pattern context -- which channel it's being instantiated under
+     * @param patternLabel Pattern context -- the label (could use as ID) of the pattern
+     * @return Your new instance
+     */
+    T build(LX lx, Integer channelIndex, String patternLabel);
+  }
+
+  /**
+   * The global registry of {@link LXPattern} factories
+   */
+  private final LXComponentFactoryRegistry<LXPattern, LXPatternFactory<?>> patternFactoryRegistry;
+
+
+  /**
    * The list of globally registered pattern classes
    */
   private final List<Class<? extends LXPattern>> registeredPatterns =
@@ -244,6 +272,10 @@ public class LX {
     // Tempo
     this.tempo = new Tempo(this);
     LX.initTimer.log("Tempo");
+
+    // Pattern factory registry
+    this.patternFactoryRegistry = new LXComponentFactoryRegistry<>();
+    LX.initTimer.log("PatternFactoryRegistry");
 
     // Add a default channel
     this.engine.addChannel(new LXPattern[] { new IteratorTestPattern(this) }).fader.setValue(1);
@@ -587,7 +619,7 @@ public class LX {
   /**
    * Register a pattern class with the engine
    *
-   * @param pattern
+   * @param patterns
    * @return this
    */
   public LX registerPatterns(Class<LXPattern>[] patterns) {
@@ -595,6 +627,19 @@ public class LX {
       registerPattern(pattern);
     }
     return this;
+  }
+
+  /**
+   * Register a pattern factory with the engine.  Used when deserializing patterns that have custom constructors from
+   * JSON (see {@link LXPatternFactory}).
+   *
+   * @param patternClazz
+   * @param patternFactory
+   * @param <T> Type of pattern
+   */
+  public <T extends LXPattern> void registerPatternFactory(Class<T> patternClazz, LXPatternFactory<T> patternFactory) {
+    patternFactoryRegistry.register(patternClazz, patternFactory);
+    this.registerPattern(patternClazz);
   }
 
   /**
@@ -677,7 +722,8 @@ public class LX {
     obj.add(KEY_EXTERNALS, externalsObj);
     try {
       JsonWriter writer = new JsonWriter(new FileWriter(file));
-      new GsonBuilder().setPrettyPrinting().create().toJson(obj, writer);
+      writer.setIndent("  ");
+      new GsonBuilder().create().toJson(obj, writer);
       writer.close();
       System.out.println("Project saved successfully to " + file.toString());
       setProject(file, ProjectListener.Change.SAVE);
@@ -752,23 +798,59 @@ public class LX {
     }
   }
 
-  private <T extends LXComponent> T instantiateComponent(String className, Class<T> type) {
-    try {
-      Class<? extends T> cls = Class.forName(className).asSubclass(type);
-      return cls.getConstructor(LX.class).newInstance(this);
-    } catch (Exception x) {
-      System.err.println("Exception in instantiateComponent: " + x.getLocalizedMessage());
+  /** Quick throwable to allow subclasses (ie P3LX) to intercept error messages and try other approaches */
+  protected class CouldNotInstantiatePatternException extends Exception {
+    public CouldNotInstantiatePatternException(String message) {
+      super(message);
     }
-    return null;
+    public CouldNotInstantiatePatternException(String message, Exception e) {
+      super(message, e);
+    }
   }
 
-  protected LXPattern instantiatePattern(String className) {
-    return instantiateComponent(className, LXPattern.class);
+  protected LXPattern instantiatePattern(String className, String patternLabel, LXChannel patternChannel)
+      throws CouldNotInstantiatePatternException {
+    Class<? extends LXPattern> clazz;
+    try {
+      clazz = Class.forName(className).asSubclass(LXPattern.class);
+    } catch (Exception e) {
+      throw new CouldNotInstantiatePatternException("Class " + className + " not recognized or not a LXPattern", e);
+    }
+
+    return instantiatePattern(clazz, patternLabel, patternChannel);
+  }
+
+  @SuppressWarnings("unchecked")
+  protected <T extends LXPattern> T instantiatePattern(Class<T> clazz, String patternLabel, LXChannel patternChannel)
+      throws CouldNotInstantiatePatternException
+  {
+    // Try instantiating via default LX constructor
+    try {
+      return clazz.getConstructor(LX.class).newInstance(this);
+    } catch (Exception e) {
+      // Try next approach
+    }
+
+
+    // Try instantiating it from a pattern factory
+    LXPatternFactory<T> factory = (LXPatternFactory<T>) patternFactoryRegistry.getFactory(clazz);
+    if (factory != null) {
+      return factory.build(this, patternChannel.getIndex(), patternLabel);
+    }
+
+
+    // Give up.
+    throw new CouldNotInstantiatePatternException("No LX constructor and no registered factory");
   }
 
   protected LXEffect instantiateEffect(String className) {
-    return instantiateComponent(className, LXEffect.class);
+    try {
+      Class<? extends LXEffect> cls = Class.forName(className).asSubclass(LXEffect.class);
+      return cls.getConstructor(LX.class).newInstance(this);
+    } catch (Exception x) {
+      System.err.println("Could not instantiate effect: " + x.getLocalizedMessage());
+      return null;
+    }
   }
-
 }
 
