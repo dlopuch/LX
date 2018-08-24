@@ -799,7 +799,7 @@ public class LX {
   }
 
   /** Quick throwable to allow subclasses (ie P3LX) to intercept error messages and try other approaches */
-  protected class CouldNotInstantiatePatternException extends Exception {
+  public class CouldNotInstantiatePatternException extends Exception {
     public CouldNotInstantiatePatternException(String message) {
       super(message);
     }
@@ -821,7 +821,7 @@ public class LX {
   }
 
   @SuppressWarnings("unchecked")
-  protected <T extends LXPattern> T instantiatePattern(Class<T> clazz, String patternLabel, LXChannel patternChannel)
+  public <T extends LXPattern> T instantiatePattern(Class<T> clazz, String patternLabel, LXChannel patternChannel)
       throws CouldNotInstantiatePatternException
   {
     // Try instantiating via default LX constructor
