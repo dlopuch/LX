@@ -97,8 +97,6 @@ public abstract class LXComponent implements LXParameterListener, LXSerializable
         this.components.remove(component.id);
       }
       if (this.components.containsKey(id)) {
-        System.out.println("HEYDAN! Registry conflict, dumping registry");
-        this.components.forEach( (id2, component2) -> System.out.println(id2 + " --> " + component2));
         throw new IllegalArgumentException("Component id already in use: " + id + " (requesting: " + component + ") (owner: " + this.components.get(id) + ")");
       }
       component.id = id;

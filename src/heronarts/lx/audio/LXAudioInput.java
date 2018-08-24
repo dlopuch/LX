@@ -194,21 +194,17 @@ public class LXAudioInput extends LXAudioComponent implements LXOscComponent, Li
         System.err.println("Device " + device + " does not support mono/stereo 16-bit input");
         return;
       }
-      System.out.println("HEYDAN starting to open up a line");
       try {
         this.line = (TargetDataLine) device.mixer.getLine(info);
         this.line.addLineListener(this);
         this.line.open(this.format, 2 * (this.format == MONO ? MONO_BUFFER_SIZE : STEREO_BUFFER_SIZE));
         this.line.start();
-        System.out.println("HEYDAN line open, trying inputThread");
         this.stopped = false;
         this.closed = false;
         this.inputThread = new InputThread(this.format);
         this.inputThread.start();
-        System.out.println("HEYDAN inputThread ready!");
       } catch (Exception x) {
-        System.err.println("Error opening up a new line, ignoring:");
-        x.printStackTrace();
+        System.err.println(x.getLocalizedMessage());
         return;
       }
     }
